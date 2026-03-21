@@ -17,6 +17,23 @@ class BluetoothManager {
             mtu: 20 // Default MTU size
         };
 
+        // Known BLE UART profiles (for compatibility with common BLE-to-Serial modules)
+        this.knownProfiles = [
+            {
+                name: 'Nordic UART',
+                serviceUUID: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+                txUUID: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+                rxUUID: '6e400003-b5a3-f393-e0a9-e50e24dcca9e'
+            },
+            {
+                // Common on HM-10 style BLE UART firmware
+                name: 'HM-10 UART',
+                serviceUUID: '0000ffe0-0000-1000-8000-00805f9b34fb',
+                txUUID: '0000ffe1-0000-1000-8000-00805f9b34fb',
+                rxUUID: '0000ffe1-0000-1000-8000-00805f9b34fb'
+            }
+        ];
+
         this.onDataReceived = null;
         this.onConnectionChange = null;
         this.onError = null;
@@ -40,11 +57,17 @@ class BluetoothManager {
 
         try {
             console.log('Requesting Bluetooth Device...');
+
+            const optionalServices = Array.from(new Set([
+                this.config.serviceUUID,
+                ...this.knownProfiles.map(profile => profile.serviceUUID)
+            ]));
+
             this.device = await navigator.bluetooth.requestDevice({
-                filters: [
-                    { services: [this.config.serviceUUID] } // Filter by UART service
-                ],
-                optionalServices: [this.config.serviceUUID]
+                // Use acceptAllDevices so modules that don't advertise service UUIDs in scan response
+                // can still be selected in the chooser.
+                acceptAllDevices: true,
+                optionalServices
             });
 
             this.device.addEventListener('gattserverdisconnected', this.handleDisconnection.bind(this));
@@ -71,6 +94,63 @@ class BluetoothManager {
         this.config = { ...this.config, ...newConfig };
     }
 
+    isCharacteristicWritable(characteristic) {
+        return !!(
+            characteristic?.properties?.write ||
+            characteristic?.properties?.writeWithoutResponse
+        );
+    }
+
+    isCharacteristicReadable(characteristic) {
+        return !!(
+            characteristic?.properties?.notify ||
+            characteristic?.properties?.indicate ||
+            characteristic?.properties?.read
+        );
+    }
+
+    async resolveServiceCharacteristics(service, profile) {
+        let txCharacteristic = null;
+        let rxCharacteristic = null;
+
+        try {
+            txCharacteristic = await service.getCharacteristic(profile.txUUID);
+        } catch (_) {
+            txCharacteristic = null;
+        }
+
+        try {
+            rxCharacteristic = await service.getCharacteristic(profile.rxUUID);
+        } catch (_) {
+            rxCharacteristic = null;
+        }
+
+        if (
+            txCharacteristic &&
+            rxCharacteristic &&
+            this.isCharacteristicWritable(txCharacteristic) &&
+            this.isCharacteristicReadable(rxCharacteristic)
+        ) {
+            return { txCharacteristic, rxCharacteristic };
+        }
+
+        const allCharacteristics = await service.getCharacteristics();
+
+        if (!txCharacteristic || !this.isCharacteristicWritable(txCharacteristic)) {
+            txCharacteristic = allCharacteristics.find(characteristic => this.isCharacteristicWritable(characteristic)) || null;
+        }
+
+        if (!rxCharacteristic || !this.isCharacteristicReadable(rxCharacteristic)) {
+            rxCharacteristic = allCharacteristics.find(characteristic => this.isCharacteristicReadable(characteristic)) || null;
+        }
+
+        if (!txCharacteristic || !rxCharacteristic) {
+            throw new Error('No compatible TX/RX characteristics found in BLE service');
+        }
+
+        return { txCharacteristic, rxCharacteristic };
+    }
+
     // Connect to device
     async connect() {
         if (!this.device) {
@@ -85,12 +165,61 @@ class BluetoothManager {
             console.log('Connecting to GATT Server...');
             this.server = await this.device.gatt.connect();
 
-            console.log('Getting Service...');
-            this.service = await this.server.getPrimaryService(this.config.serviceUUID);
+            const candidates = [];
+            const pushUniqueProfile = (profile) => {
+                if (!profile?.serviceUUID || !profile?.txUUID || !profile?.rxUUID) return;
+                const exists = candidates.some(item =>
+                    item.serviceUUID === profile.serviceUUID &&
+                    item.txUUID === profile.txUUID &&
+                    item.rxUUID === profile.rxUUID
+                );
+                if (!exists) candidates.push(profile);
+            };
 
-            console.log('Getting Characteristics...');
-            this.rxCharacteristic = await this.service.getCharacteristic(this.config.rxUUID);
-            this.txCharacteristic = await this.service.getCharacteristic(this.config.txUUID);
+            pushUniqueProfile({
+                name: 'Custom',
+                serviceUUID: this.config.serviceUUID,
+                txUUID: this.config.txUUID,
+                rxUUID: this.config.rxUUID
+            });
+            this.knownProfiles.forEach(pushUniqueProfile);
+
+            let lastError = null;
+            let connectedProfile = null;
+
+            for (const profile of candidates) {
+                try {
+                    console.log(`Trying BLE profile: ${profile.name}`);
+                    this.service = await this.server.getPrimaryService(profile.serviceUUID);
+
+                    const resolved = await this.resolveServiceCharacteristics(this.service, profile);
+                    this.txCharacteristic = resolved.txCharacteristic;
+                    this.rxCharacteristic = resolved.rxCharacteristic;
+
+                    connectedProfile = profile;
+                    break;
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+
+            if (!connectedProfile) {
+                throw lastError || new Error('No compatible BLE UART service found on device');
+            }
+
+            this.config = {
+                ...this.config,
+                serviceUUID: connectedProfile.serviceUUID,
+                txUUID: this.txCharacteristic.uuid,
+                rxUUID: this.rxCharacteristic.uuid
+            };
+            console.log(`Connected using BLE profile: ${connectedProfile.name}`);
+            console.log('Resolved BLE characteristics:', {
+                txUUID: this.txCharacteristic.uuid,
+                txProps: this.txCharacteristic.properties,
+                rxUUID: this.rxCharacteristic.uuid,
+                rxProps: this.rxCharacteristic.properties
+            });
 
             // Start notifications
             await this.rxCharacteristic.startNotifications();
@@ -168,11 +297,46 @@ class BluetoothManager {
             const dataToSend = data + addLineEnding;
             const encoded = encoder.encode(dataToSend);
 
+            const supportsWriteWithResponse = !!this.txCharacteristic.properties?.write;
+            const supportsWriteWithoutResponse = !!this.txCharacteristic.properties?.writeWithoutResponse;
+
             // BLE typically has max MTU (20 bytes default)
             const chunkSize = this.config.mtu;
             for (let i = 0; i < encoded.byteLength; i += chunkSize) {
                 const chunk = encoded.slice(i, i + chunkSize);
-                await this.txCharacteristic.writeValue(chunk);
+
+                let writeSucceeded = false;
+                let lastWriteError = null;
+
+                const writeAttempts = [];
+                if (supportsWriteWithoutResponse && typeof this.txCharacteristic.writeValueWithoutResponse === 'function') {
+                    writeAttempts.push(() => this.txCharacteristic.writeValueWithoutResponse(chunk));
+                }
+                if (supportsWriteWithResponse && typeof this.txCharacteristic.writeValueWithResponse === 'function') {
+                    writeAttempts.push(() => this.txCharacteristic.writeValueWithResponse(chunk));
+                }
+                if (typeof this.txCharacteristic.writeValue === 'function') {
+                    writeAttempts.push(() => this.txCharacteristic.writeValue(chunk));
+                }
+
+                if (writeAttempts.length === 0) {
+                    throw new Error('No supported write method is available on this BLE characteristic');
+                }
+
+                for (const attempt of writeAttempts) {
+                    try {
+                        await attempt();
+                        writeSucceeded = true;
+                        break;
+                    } catch (error) {
+                        lastWriteError = error;
+                    }
+                }
+
+                if (!writeSucceeded) {
+                    throw lastWriteError || new Error('Failed to write BLE data');
+                }
+
                 this.bytesSent += chunk.byteLength;
             }
 
