@@ -8,6 +8,8 @@ class UIManager {
         this.showTimestamps = true;
         this.displayFormat = 'text';
         this.advancedMode = false;
+        this.bleFilter = false;
+        this.bleFilterName = '';
         this.theme = 'light';
         this.messageBuffer = [];
 
@@ -44,6 +46,11 @@ class UIManager {
 
             // Advanced Mode Toggle
             advancedModeToggle: document.getElementById('advancedModeToggle'),
+            bleFilterToggle: document.getElementById('bleFilterToggle'),
+            bleFilterQuickToggle: document.getElementById('bleFilterQuickToggle'),
+            bleFilterSection: document.getElementById('bleFilterSection'),
+            bleFilterName: document.getElementById('bleFilterName'),
+            bleFilterNameSettings: document.getElementById('bleFilterNameSettings'),
 
             // Sidebar
             sidebar: document.getElementById('sidebar'),
@@ -109,6 +116,30 @@ class UIManager {
         });
 
         // Advanced Mode Toggle
+        if (this.elements.bleFilterToggle) {
+            this.elements.bleFilterToggle.addEventListener('change', (e) => {
+                this.setBleFilter(e.target.checked);
+            });
+        }
+
+        if (this.elements.bleFilterQuickToggle) {
+            this.elements.bleFilterQuickToggle.addEventListener('change', (e) => {
+                this.setBleFilter(e.target.checked);
+            });
+        }
+
+        if (this.elements.bleFilterName) {
+            this.elements.bleFilterName.addEventListener('input', (e) => {
+                this.setBleFilterName(e.target.value);
+            });
+        }
+
+        if (this.elements.bleFilterNameSettings) {
+            this.elements.bleFilterNameSettings.addEventListener('input', (e) => {
+                this.setBleFilterName(e.target.value);
+            });
+        }
+
         if (this.elements.advancedModeToggle) {
             this.elements.advancedModeToggle.addEventListener('change', (e) => {
                 this.toggleAdvancedMode(e.target.checked);
@@ -234,6 +265,7 @@ class UIManager {
         const selectBtnText = document.getElementById('selectBtnText');
         const selectPortBtn = document.getElementById('selectPortBtn');
         const remoteConfigSection = document.getElementById('remoteConfigSection');
+        const bleFilterSection = document.getElementById('bleFilterSection');
         const headerBroadcastControls = document.getElementById('headerBroadcastControls');
 
         // Update Segmented Control State
@@ -252,6 +284,7 @@ class UIManager {
             selectBtnText.textContent = 'Select Port';
             // if (serialConfigSection) serialConfigSection.style.display = 'block'; // Moved to Settings Modal
             if (remoteConfigSection) remoteConfigSection.style.display = 'none';
+            if (bleFilterSection) bleFilterSection.style.display = 'none';
             if (headerBroadcastControls) {
                 // Only show broadcast controls if in advanced mode
                 headerBroadcastControls.style.display = this.advancedMode ? 'flex' : 'none';
@@ -266,6 +299,7 @@ class UIManager {
             selectBtnText.textContent = 'Scan Device';
             // if (serialConfigSection) serialConfigSection.style.display = 'none';
             if (remoteConfigSection) remoteConfigSection.style.display = 'none';
+            if (bleFilterSection) bleFilterSection.style.display = 'flex';
             if (headerBroadcastControls) {
                 // Only show broadcast controls if in advanced mode
                 headerBroadcastControls.style.display = this.advancedMode ? 'flex' : 'none';
@@ -277,6 +311,7 @@ class UIManager {
             selectPortBtn.style.display = 'none'; // No "Select Port" needed
             // if (serialConfigSection) serialConfigSection.style.display = 'none';
             if (remoteConfigSection) remoteConfigSection.style.display = 'block';
+            if (bleFilterSection) bleFilterSection.style.display = 'none';
             if (headerBroadcastControls) headerBroadcastControls.style.display = 'none';
             // if (broadcastSection) broadcastSection.style.display = 'none'; // Moved to Header
             // Hide format selector in remote mode
@@ -656,6 +691,43 @@ class UIManager {
         this.showNotification(`${this.theme === 'dark' ? 'Dark' : 'Light'} theme activated`, 'info');
     }
 
+    // Set BLE device list filter (syncs sidebar + settings toggles)
+    setBleFilter(enabled, silent = false) {
+        this.bleFilter = enabled;
+        if (this.elements.bleFilterToggle) {
+            this.elements.bleFilterToggle.checked = enabled;
+        }
+        if (this.elements.bleFilterQuickToggle) {
+            this.elements.bleFilterQuickToggle.checked = enabled;
+        }
+        // Show name pattern input only when the filter is active
+        const nameInputDisplay = enabled ? 'block' : 'none';
+        if (this.elements.bleFilterName) {
+            this.elements.bleFilterName.style.display = nameInputDisplay;
+        }
+        if (this.elements.bleFilterNameSettings) {
+            this.elements.bleFilterNameSettings.style.display = nameInputDisplay;
+        }
+        this.savePreferences();
+        if (!silent) {
+            this.showNotification(enabled
+                ? 'BLE device list filter enabled'
+                : 'Showing all BLE devices', 'info');
+        }
+    }
+
+    // Set BLE device name pattern (syncs sidebar + settings inputs)
+    setBleFilterName(value) {
+        this.bleFilterName = value;
+        if (this.elements.bleFilterName) {
+            this.elements.bleFilterName.value = value;
+        }
+        if (this.elements.bleFilterNameSettings) {
+            this.elements.bleFilterNameSettings.value = value;
+        }
+        this.savePreferences();
+    }
+
     // Toggle Advanced Mode
     toggleAdvancedMode(enabled) {
         this.advancedMode = enabled;
@@ -882,7 +954,9 @@ class UIManager {
             showTimestamps: this.showTimestamps,
             autoScroll: this.autoScroll,
             displayFormat: this.displayFormat,
-            advancedMode: this.advancedMode
+            advancedMode: this.advancedMode,
+            bleFilter: this.bleFilter,
+            bleFilterName: this.bleFilterName
         };
         localStorage.setItem('esp32-monitor-preferences', JSON.stringify(preferences));
     }
@@ -897,6 +971,8 @@ class UIManager {
             this.autoScroll = preferences.autoScroll !== false;
             this.displayFormat = preferences.displayFormat || 'text';
             this.advancedMode = preferences.advancedMode === true;
+            this.setBleFilter(preferences.bleFilter === true, true); // silent: no notification on load
+            this.setBleFilterName(preferences.bleFilterName || '');
 
             // Apply theme
             if (this.theme === 'dark') {

@@ -34,9 +34,22 @@ class BluetoothManager {
             }
         ];
 
+        // Service UUIDs advertised by common BLE UART modules.
+        // Used to filter the device picker down to likely-serial devices.
+        // Note: a device only appears if its *advertisement* includes one of these.
+        this.bleFilterServices = [
+            '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART (ESP32, nRF)
+            '0000ffe0-0000-1000-8000-00805f9b34fb', // HM-10 / BT-04A style
+            '0000fff0-0000-1000-8000-00805f9b34fb', // Common clone variant
+            '0000ffd0-0000-1000-8000-00805f9b34fb'  // Common clone variant
+        ];
+
         this.onDataReceived = null;
         this.onConnectionChange = null;
         this.onError = null;
+
+        // RX polling (fallback for characteristics that don't support notify)
+        this.rxPollTimer = null;
 
         // Statistics
         this.bytesReceived = 0;
@@ -50,31 +63,53 @@ class BluetoothManager {
     }
 
     // Scan for devices
-    async requestDevice() {
+    // filterOnly:  true -> only show devices matching the filter below
+    // namePattern: comma-separated device name prefixes (e.g. "BT-04, BT04").
+    //              When blank, filters by known UART service UUIDs instead.
+    async requestDevice(filterOnly = false, namePattern = '') {
         if (!this.isSupported()) {
             throw new Error('Web Bluetooth API is not supported in this browser. Please use Chrome or Edge.');
         }
 
         try {
-            console.log('Requesting Bluetooth Device...');
+            console.log('Requesting Bluetooth Device...', { filterOnly, namePattern });
 
             const optionalServices = Array.from(new Set([
                 this.config.serviceUUID,
                 ...this.knownProfiles.map(profile => profile.serviceUUID)
             ]));
 
-            this.device = await navigator.bluetooth.requestDevice({
+            const requestOptions = {
                 // Use acceptAllDevices so modules that don't advertise service UUIDs in scan response
                 // can still be selected in the chooser.
-                acceptAllDevices: true,
+                acceptAllDevices: !filterOnly,
                 optionalServices
-            });
+            };
+
+            if (filterOnly) {
+                const names = String(namePattern || '').split(',')
+                    .map(n => n.trim())
+                    .filter(n => n.length > 0);
+
+                if (names.length > 0) {
+                    // Show only devices whose advertised name starts with one of these prefixes
+                    requestOptions.filters = names.map(name => ({ namePrefix: name }));
+                } else {
+                    // No name given: show only devices advertising a known UART service
+                    requestOptions.filters = [{ services: this.bleFilterServices }];
+                }
+                delete requestOptions.optionalServices;
+            }
+
+            this.device = await navigator.bluetooth.requestDevice(requestOptions);
 
             this.device.addEventListener('gattserverdisconnected', this.handleDisconnection.bind(this));
             return this.device;
         } catch (error) {
             if (error.name === 'NotFoundError') {
-                throw new Error('No device selected');
+                throw new Error(filterOnly
+                    ? 'No device selected — if your module is missing, check the name pattern (Settings) or turn the filter off'
+                    : 'No device selected');
             }
             throw error;
         }
@@ -151,6 +186,72 @@ class BluetoothManager {
         return { txCharacteristic, rxCharacteristic };
     }
 
+    // Auto-detect UART-like characteristics in any service.
+    // Fallback for modules (e.g. BT-04A firmware variants) that use
+    // non-standard service/characteristic UUIDs not in knownProfiles.
+    async detectGenericUart() {
+        const services = await this.server.getPrimaryServices();
+        let lastError = null;
+
+        for (const service of services) {
+            let characteristics;
+            try {
+                characteristics = await service.getCharacteristics();
+            } catch (error) {
+                lastError = error;
+                continue;
+            }
+
+            let tx = null;
+            let rx = null;
+
+            for (const characteristic of characteristics) {
+                const isWritable = this.isCharacteristicWritable(characteristic);
+                const isReadable = this.isCharacteristicReadable(characteristic);
+
+                if (isWritable && isReadable) {
+                    // Single characteristic used for both directions (common on cheap UART modules)
+                    if (!tx) { tx = characteristic; rx = characteristic; break; }
+                }
+                if (isWritable && !tx) tx = characteristic;
+                if (isReadable && !rx) rx = characteristic;
+            }
+
+            if (tx && rx) {
+                console.log(`Generic UART detected in service ${service.uuid}`, {
+                    tx: tx.uuid, rx: rx.uuid
+                });
+                return { service, txCharacteristic: tx, rxCharacteristic: rx };
+            }
+        }
+
+        throw lastError || new Error('No UART-like service found on device');
+    }
+
+    // Poll rx characteristic as fallback when notifications are unavailable
+    startRxPolling(intervalMs = 100) {
+        if (this.rxPollTimer) return;
+        console.log('RX notifications unavailable, falling back to polling');
+        this.rxPollTimer = setInterval(async () => {
+            try {
+                const value = await this.rxCharacteristic.readValue();
+                if (value && value.byteLength > 0) {
+                    this.handleCharacteristicValueChanged({ target: { value } });
+                }
+            } catch (error) {
+                this.stopRxPolling();
+                console.error('RX polling failed:', error);
+            }
+        }, intervalMs);
+    }
+
+    stopRxPolling() {
+        if (this.rxPollTimer) {
+            clearInterval(this.rxPollTimer);
+            this.rxPollTimer = null;
+        }
+    }
+
     // Connect to device
     async connect() {
         if (!this.device) {
@@ -204,7 +305,23 @@ class BluetoothManager {
             }
 
             if (!connectedProfile) {
-                throw lastError || new Error('No compatible BLE UART service found on device');
+                // Fallback: auto-detect UART characteristics in any service.
+                // Allows devices like BT-04A that use non-standard service UUIDs.
+                try {
+                    console.log('Known profiles failed, falling back to generic auto-detection...');
+                    const detected = await this.detectGenericUart();
+                    this.service = detected.service;
+                    this.txCharacteristic = detected.txCharacteristic;
+                    this.rxCharacteristic = detected.rxCharacteristic;
+                    connectedProfile = {
+                        name: `Generic (${detected.service.uuid})`,
+                        serviceUUID: detected.service.uuid,
+                        txUUID: detected.txCharacteristic.uuid,
+                        rxUUID: detected.rxCharacteristic.uuid
+                    };
+                } catch (genericError) {
+                    throw lastError || genericError || new Error('No compatible BLE UART service found on device');
+                }
             }
 
             this.config = {
@@ -221,9 +338,23 @@ class BluetoothManager {
                 rxProps: this.rxCharacteristic.properties
             });
 
-            // Start notifications
-            await this.rxCharacteristic.startNotifications();
-            this.rxCharacteristic.addEventListener('characteristicvaluechanged', this.handleCharacteristicValueChanged.bind(this));
+            // Start notifications (fall back to polling if not supported)
+            const supportsNotify = !!(
+                this.rxCharacteristic.properties?.notify ||
+                this.rxCharacteristic.properties?.indicate
+            );
+
+            if (supportsNotify) {
+                try {
+                    await this.rxCharacteristic.startNotifications();
+                    this.rxCharacteristic.addEventListener('characteristicvaluechanged', this.handleCharacteristicValueChanged.bind(this));
+                } catch (notifyError) {
+                    console.warn('startNotifications failed, using RX polling instead:', notifyError);
+                    this.startRxPolling();
+                }
+            } else {
+                this.startRxPolling();
+            }
 
             this.isConnected = true;
             this.connectionStartTime = Date.now();
@@ -268,6 +399,7 @@ class BluetoothManager {
         console.log('Bluetooth Device disconnected');
         this.isConnected = false;
         this.connectionStartTime = null;
+        this.stopRxPolling();
 
         if (this.onConnectionChange) {
             this.onConnectionChange(false);

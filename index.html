@@ -97,6 +97,19 @@
                             style="margin-bottom: 8px; text-transform: uppercase;">
                     </div>
 
+                    <!-- BLE device list filter (Bluetooth mode only) -->
+                    <div id="bleFilterSection"
+                        style="display: none; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-size: 0.9em; opacity: 0.85;">Only show matching device</span>
+                            <label class="toggle-switch-label">
+                                <input type="checkbox" id="bleFilterQuickToggle" class="start-hidden-toggle">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <input type="text" id="bleFilterName" class="input-field" placeholder="Device name, e.g. BT-04 (blank = UART services)"
+                            style="display: none;">
+
                     <button id="selectPortBtn" class="btn btn-secondary">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <rect x="2" y="6" width="20" height="12" rx="2" />
@@ -280,6 +293,21 @@
                         </label>
                     </div>
                 </div>
+                <!-- BLE Device Filter -->
+                <div class="settings-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                        <span>
+                            <strong>Filter BLE device list</strong>
+                            <span style="display: block; font-size: 0.85em; opacity: 0.7;">Only show devices matching the name below. Leave
+                                blank to filter by known UART services (Nordic, HM-10/BT-04A) instead.</span>
+                        </span>
+                        <label class="toggle-switch-label">
+                            <input type="checkbox" id="bleFilterToggle" class="start-hidden-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <input type="text" id="bleFilterNameSettings" class="input-field"
+                        placeholder="Device name, e.g. BT-04 (blank = UART services)" style="display: none; margin-top: 8px;">
                 <!-- Serial Configuration -->
                 <div class="settings-section">
                     <h3>Serial Configuration</h3>

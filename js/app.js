@@ -465,7 +465,7 @@ class App {
                 this.uiManager.showNotification('Port selected successfully', 'success');
                 this.savePortInfo(portInfo);
             } else {
-                await this.bluetoothManager.requestDevice();
+                await this.bluetoothManager.requestDevice(this.uiManager.bleFilter, this.uiManager.bleFilterName);
                 const deviceInfo = this.bluetoothManager.getDeviceInfo();
                 this.uiManager.updateDeviceInfo(deviceInfo);
                 this.uiManager.enableConnectButton();
