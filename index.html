@@ -181,6 +181,11 @@
                         Clear Chat
                     </button>
                 </div>
+
+                <!-- Version Footer -->
+                <div class="sidebar-version">
+                    WebSerial Monitor <span id="sidebarVersion">v…</span>
+                </div>
             </div>
         </aside>
 
@@ -428,7 +433,7 @@
                         <div class="logo-icon img-icon" style="width: 48px; height: 48px;"></div>
                     </div>
                     <h3>WebSerial Monitor</h3>
-                    <p>Version v1.1.0</p>
+                    <p>Version <span id="aboutVersion">v…</span></p>
                     <div
                         style="margin: 20px 0; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); padding: 10px 0;">
                         <p><strong>Designer:</strong> Jacky CHOW</p>
@@ -438,6 +443,10 @@
                                 style="color: var(--primary-color);">jackyhku/webserial</a></p>
                     </div>
                     <p>A web-based serial monitor for ESP32 and other serial devices.</p>
+                    <button id="checkUpdatesBtn" class="btn btn-secondary" style="margin-top: 12px;">
+                        Check for Updates
+                    </button>
+                    <p id="updateStatus" style="margin-top: 10px; font-size: 0.9em; min-height: 1.2em;"></p>
                 </div>
             </div>
             <div class="modal-footer">

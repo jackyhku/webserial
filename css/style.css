@@ -1255,3 +1255,16 @@ body.dark-theme .message.broadcast .message-bubble {
     transform: translateX(20px);
     background-color: white;
 }
+
+/* Sidebar version footer */
+.sidebar-version {
+    text-align: center;
+    font-size: 0.75em;
+    color: var(--text-tertiary);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--border-color);
+}
+
+.sidebar-version span {
+    font-weight: 600;
+}

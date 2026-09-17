@@ -129,7 +129,81 @@ class App {
         // Default to Serial mode UI
         this.uiManager.updateModeUI(this.activeMode);
 
+        // Show app version (sidebar + About modal) and wire update check
+        this.updateVersionDisplay();
+        const checkUpdatesBtn = document.getElementById('checkUpdatesBtn');
+        if (checkUpdatesBtn) {
+            checkUpdatesBtn.addEventListener('click', () => this.checkForUpdates());
+        }
+
         console.log('ESP32 WebSerial Monitor initialized');
+    }
+
+    // Show app version in the sidebar footer and About modal
+    updateVersionDisplay() {
+        const version = (typeof CONFIG !== 'undefined' && CONFIG.app && CONFIG.app.version) || 'unknown';
+        const sidebar = document.getElementById('sidebarVersion');
+        if (sidebar) sidebar.textContent = `v${version}`;
+        const about = document.getElementById('aboutVersion');
+        if (about) about.textContent = `v${version}`;
+    }
+
+    // Compare two dotted version strings (returns -1, 0, or 1)
+    compareVersions(a, b) {
+        const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
+        const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
+        const len = Math.max(pa.length, pb.length);
+        for (let i = 0; i < len; i++) {
+            const diff = (pa[i] || 0) - (pb[i] || 0);
+            if (diff !== 0) return diff > 0 ? 1 : -1;
+        }
+        return 0;
+    }
+
+    // Check GitHub for a newer release (releases first, then tags)
+    async checkForUpdates() {
+        const statusEl = document.getElementById('updateStatus');
+        if (!statusEl) return;
+        const current = (typeof CONFIG !== 'undefined' && CONFIG.app && CONFIG.app.version) || '0.0.0';
+        statusEl.textContent = 'Checking GitHub…';
+
+        const stripV = (s) => String(s || '').replace(/^v/i, '');
+        let latest = null;
+
+        try {
+            let res = await fetch('https://api.github.com/repos/jackyhku/webserial/releases/latest', {
+                headers: { 'Accept': 'application/vnd.github+json' }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                latest = stripV(data.tag_name || data.name);
+            } else if (res.status === 404) {
+                // No GitHub Releases yet — fall back to the latest git tag
+                res = await fetch('https://api.github.com/repos/jackyhku/webserial/tags', {
+                    headers: { 'Accept': 'application/vnd.github+json' }
+                });
+                if (res.ok) {
+                    const tags = await res.json();
+                    latest = tags.length > 0 ? stripV(tags[0].name) : null;
+                }
+            } else {
+                throw new Error(`GitHub API error ${res.status}`);
+            }
+        } catch (error) {
+            statusEl.innerHTML = `⚠️ Could not check for updates (offline or GitHub unavailable). Current: <strong>v${current}</strong> — <a href="https://github.com/jackyhku/webserial" target="_blank" rel="noopener" style="color: var(--primary-color);">check on GitHub</a>`;
+            return;
+        }
+
+        if (!latest) {
+            statusEl.innerHTML = `ℹ️ No releases found on GitHub. Current: <strong>v${current}</strong> — <a href="https://github.com/jackyhku/webserial" target="_blank" rel="noopener" style="color: var(--primary-color);">check on GitHub</a>`;
+            return;
+        }
+
+        if (this.compareVersions(latest, current) > 0) {
+            statusEl.innerHTML = `🆕 New version <strong>v${latest}</strong> available (you have v${current}) — <a href="https://github.com/jackyhku/webserial" target="_blank" rel="noopener" style="color: var(--primary-color);">update now</a>`;
+        } else {
+            statusEl.innerHTML = `✅ You are running the latest version (<strong>v${current}</strong>).`;
+        }
     }
 
     // Initialize Socket.IO connection (Setup only)

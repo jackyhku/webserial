@@ -51,7 +51,7 @@ const CONFIG = {
     // Application settings
     app: {
         name: 'ESP32 WebSerial Monitor',
-        version: '1.1.0',
+        version: '1.2.0',
         debug: false
     }
 };
