@@ -417,6 +417,12 @@ class App {
         const broadcastBtn = this.uiManager.elements.broadcastBtn;
         if (broadcastBtn) {
             broadcastBtn.addEventListener('click', () => {
+                // Block enabling broadcast when the backend socket is disabled
+                if (!this.broadcastEnabled && !CONFIG.websocket.enabled) {
+                    this.uiManager.showNotification('Remote Broadcast is unavailable on this deployment (no backend server)', 'warning');
+                    return;
+                }
+
                 this.broadcastEnabled = !this.broadcastEnabled;
                 this.uiManager.setBroadcastEnabled(this.broadcastEnabled); // Helper we added to UI
 
@@ -524,7 +530,11 @@ class App {
             this.uiManager.appendSystemMessage('Switched to Bluetooth (BLE 4.0) mode', false);
         } else {
             this.uiManager.appendSystemMessage('Switched to Remote Monitor mode', false);
-            this.uiManager.appendSystemMessage('ℹ️ Listening for broadcasts from other devices...', false);
+            if (CONFIG.websocket.enabled) {
+                this.uiManager.appendSystemMessage('ℹ️ Listening for broadcasts from other devices...', false);
+            } else {
+                this.uiManager.appendSystemMessage('⚠️ Remote mode is unavailable on this deployment (no backend server). Use Serial or Bluetooth mode.', false);
+            }
         }
     }
 
@@ -649,6 +659,10 @@ class App {
     // Handle connect/disconnect toggle
     async handleConnectToggle() {
         if (this.activeMode === 'remote') {
+            if (!CONFIG.websocket.enabled) {
+                this.uiManager.showNotification('Remote mode is unavailable on this deployment (no backend server)', 'warning');
+                return;
+            }
             if (this.activeManager.isConnected) {
                 this.activeManager.disconnect();
             } else {

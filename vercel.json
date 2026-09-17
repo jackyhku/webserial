@@ -1,30 +1,17 @@
 {
-    "version": 2,
-    "builds": [
+    "$schema": "https://openapi.vercel.sh/vercel.json",
+    "headers": [
         {
-            "src": "package.json",
-            "use": "@vercel/node"
+            "source": "/js/(.*)",
+            "headers": [
+                { "key": "Cache-Control", "value": "public, max-age=3600, must-revalidate" }
+            ]
         },
         {
-            "src": "index.html",
-            "use": "@vercel/static"
-        }
-    ],
-    "routes": [
-        {
-            "handle": "filesystem"
-        },
-        {
-            "src": "/api/(.*)",
-            "dest": "/server.js"
-        },
-        {
-            "src": "/socket.io/(.*)",
-            "dest": "/server.js"
-        },
-        {
-            "src": "/(.*)",
-            "status": 404
+            "source": "/css/(.*)",
+            "headers": [
+                { "key": "Cache-Control", "value": "public, max-age=3600, must-revalidate" }
+            ]
         }
     ]
 }

@@ -12,8 +12,11 @@ const CONFIG = {
     },
 
     // WebSocket settings (if applicable)
+    // NOTE: Set to false for static deployments (e.g. Vercel) that have no
+    // backend server. Remote Broadcast/Monitor mode will be disabled in the UI.
+    // Set to true when serving through server.js (local / self-hosted).
     websocket: {
-        enabled: true,
+        enabled: false,
         // Dynamically determine URL based on current page location
         // This supports localhost, local IP (192.168.x.x), and production domains (e.g. webserial.qrhk.app)
         url: (typeof window !== 'undefined' && window.location.protocol !== 'file:')
@@ -51,7 +54,7 @@ const CONFIG = {
     // Application settings
     app: {
         name: 'ESP32 WebSerial Monitor',
-        version: '1.2.0',
+        version: '1.2.1',
         debug: false
     }
 };

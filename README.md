@@ -1,5 +1,5 @@
 # WebSerial Monitor
-> **Version 1.2.0** | **Designed by Jacky CHOW** | **Jan 2026**
+> **Version 1.2.1** | **Designed by Jacky CHOW** | **Jan 2026**
 
 A modern, chatbot-style web application for communicating with ESP32 devices via USB serial connection (Web Serial API) and Bluetooth LE (Web Bluetooth API).
 
